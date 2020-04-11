@@ -72,6 +72,7 @@ short offset(asDWORD* op, unsigned n) {
 // Used to determine if we need to perform a full test in a Test-Jump pair
 bool clearsTemporary(asEBCInstr op) {
 	switch(op) {
+		default: break;
 		case asBC_TZ:
 		case asBC_TNZ:
 		case asBC_TS:
@@ -290,7 +291,7 @@ struct SystemCall {
 
 	SystemCall(Processor& CPU, FloatingPointUnit& FPU,
 		std::function<void(JumpType,bool)> ConditionalReturn, asDWORD* const & bytecode, unsigned JitFlags)
-		: cpu(CPU), fpu(FPU), returnHandler(ConditionalReturn), pOp(bytecode), flags(0)
+		: cpu(CPU), fpu(FPU), pOp(bytecode), flags(0), returnHandler(ConditionalReturn)
 	{
 		if((JitFlags & JIT_SYSCALL_NO_ERRORS) != 0)
 			flags |= SC_Safe;
@@ -418,6 +419,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 	while(passOp < end) {
 		asEBCInstr op = asEBCInstr(*(asBYTE*)passOp);
 		switch(op) {
+			default: break;
 			case asBC_JMP:
 			case asBC_JLowZ:
 			case asBC_JZ:
@@ -876,6 +878,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 				thirdOp = asEBCInstr(*(asBYTE*)pThirdOp);
 
 				switch(op) {
+				default: break;
 				case asBC_SetV8:
 					if(thirdOp == asBC_CpyVtoV8 &&
 						(nextOp == asBC_ADDd || nextOp == asBC_DIVd ||
@@ -889,6 +892,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 						MemAddress doubleConstant(cpu, &asBC_QWORDARG(pOp));
 
 						switch(nextOp) {
+						default: break;
 						case asBC_ADDd:
 							fpu.add_double(doubleConstant); break;
 						case asBC_SUBd:
@@ -956,6 +960,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 			}
 
 			switch(op) {
+			default: break;
 			case asBC_SetV4:
 				if(nextOp == asBC_SetV4 && asBC_DWORDARG(pOp) == asBC_DWORDARG(pNextOp)) {
 					//Optimize intializing 2 variables to the same value (often 0)
@@ -1097,6 +1102,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 					pOp = pThirdOp;
 					continue;
 				}
+				break;
 			case asBC_CMPi:
 			case asBC_CMPIi:
 			case asBC_CMPu:
@@ -1107,6 +1113,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 
 				//Optimize various CMPi, JConditional to avoid additional logic checks
 				switch(nextOp) {
+				default: break;
 				case asBC_JZ: case asBC_JLowZ:
 					jump = Equal; break;
 				case asBC_JNZ: case asBC_JLowNZ:
@@ -1848,16 +1855,12 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 				auto p = cpu.prep_long_jump(Zero);
 
 				if(beh->release) {
-					asCScriptFunction* func = (asCScriptFunction*)function->GetEngine()->GetFunctionById(beh->release);
-					if((flags & JIT_FAST_REFCOUNT) != 0) {
-						unsigned callFlags = SC_ValidObj | SC_NoReturn | SC_Simple;
+					unsigned callFlags = SC_ValidObj | SC_NoReturn | SC_Simple;
+					if((flags & JIT_FAST_REFCOUNT) != 0)
 						callFlags |= SC_NoSuspend | SC_Safe;
-						sysCall.callSystemFunction(func, &arg1, callFlags);
-					} else {
-						cpu.call_stdcall((void*)engineCallMethod, "prp",
-							(asCScriptEngine*)function->GetEngine(),
-							&arg1, func);
-					}
+
+					asCScriptFunction* func = (asCScriptFunction*)function->GetEngine()->GetFunctionById(beh->release);
+					sysCall.callSystemFunction(func, &arg1, callFlags);
 				}
 				else if(beh->destruct) {
 					//Copy over registers to the vm in case the called functions observe the call stack
@@ -1976,6 +1979,10 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 				arg1 = as<void*>(*esi);
 				as<void*>(*esp + local::object1) = arg1;
 
+				unsigned callFlags = SC_ValidObj | SC_NoReturn | SC_Simple;
+				if((flags & JIT_FAST_REFCOUNT) != 0)
+					callFlags |= SC_NoSuspend | SC_Safe;
+
 				//Add reference to object 1, if not null
 				arg1 &= arg1;
 				if (beh->addref)
@@ -1983,15 +1990,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 					auto prev = cpu.prep_long_jump(Zero);
 					{
 						asCScriptFunction* func = (asCScriptFunction*)function->GetEngine()->GetFunctionById(beh->addref);
-						if((flags & JIT_FAST_REFCOUNT) != 0) {
-							unsigned callFlags = SC_ValidObj | SC_NoReturn | SC_Simple;
-							callFlags |= SC_NoSuspend | SC_Safe;
-							sysCall.callSystemFunction(func, &arg1, callFlags);
-						} else {
-							cpu.call_stdcall((void*)engineCallMethod, "prp",
-								(asCScriptEngine*)function->GetEngine(),
-								&arg1, func);
-						}
+						sysCall.callSystemFunction(func, &arg1, callFlags);
 					}
 					cpu.end_long_jump(prev);
 				}
@@ -2005,15 +2004,7 @@ int asCJITCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *
 					auto dest = cpu.prep_long_jump(Zero);
 					{
 						asCScriptFunction* func = (asCScriptFunction*)function->GetEngine()->GetFunctionById(beh->release);
-						if((flags & JIT_FAST_REFCOUNT) != 0) {
-							unsigned callFlags = SC_ValidObj | SC_NoReturn | SC_Simple;
-							callFlags |= SC_NoSuspend | SC_Safe;
-							sysCall.callSystemFunction(func, &arg1, callFlags);
-						} else {
-							cpu.call_stdcall((void*)engineCallMethod, "prp",
-								(asCScriptEngine*)function->GetEngine(),
-								&arg1, func);
-						}
+						sysCall.callSystemFunction(func, &arg1, callFlags);
 					}
 					cpu.end_long_jump(dest);
 				}
@@ -3500,12 +3491,14 @@ void SystemCall::call_64conv(asSSystemFunctionInterface* func,
 	bool retPointer = false;
 	bool retOnStack = false;
 	int firstPos = 0;
-	
+
 	//'this' before 'return pointer' on MSVC
 	if(pos == OP_This) {
 		Register reg = as<void*>(cpu.intArg64(0, 0));
 		if(func->callConv >= ICC_THISCALL && func->auxiliary) {
 			reg = func->auxiliary;
+			// FIXME: why auxiliary should already be casted to the base type?
+			//        reg += func->baseOffset;
 		}
 		else if(objPointer) {
 			reg = *objPointer;
@@ -3625,10 +3618,14 @@ void SystemCall::call_64conv(asSSystemFunctionInterface* func,
 					Register reg = as<void*>(cpu.intArg64(firstPos, firstPos));
 					reg = func->auxiliary;
 					containingObj.set_regCode(reg);
+					// FIXME: why auxiliary should already be casted to the base type?
+					//        reg += func->baseOffset;
 				}
 				else {
 					temp = func->auxiliary;
 					containingObj.set_regCode(temp);
+					// FIXME: why auxiliary should already be casted to the base type?
+					//        reg += func->baseOffset;
 				}
 			}
 			else if(pos == OP_Last) {
@@ -3636,11 +3633,15 @@ void SystemCall::call_64conv(asSSystemFunctionInterface* func,
 					Register reg = as<void*>(cpu.intArg64(intCount+1, a+1));
 					reg = func->auxiliary;
 					containingObj.set_regCode(reg);
+					// FIXME: why auxiliary should already be casted to the base type?
+					//        reg += func->baseOffset;
 				}
 				else {
 					temp = func->auxiliary;
-					containingObj.set_regCode(temp);
 					cpu.push(temp);
+					containingObj.set_regCode(temp);
+					// FIXME: why auxiliary should already be casted to the base type?
+					//        temp += func->baseOffset;
 				}
 			}
 		}
@@ -3649,15 +3650,18 @@ void SystemCall::call_64conv(asSSystemFunctionInterface* func,
 				*objPointer &= *objPointer;
 				returnHandler(Zero, false);
 			}
-		
+
 			if(pos == OP_First) {
 				if(cpu.isIntArg64Register(firstPos, firstPos)) {
 					Register reg = as<void*>(cpu.intArg64(firstPos, firstPos));
 					reg = as<void*>(*objPointer);
+
+					reg += func->baseOffset;
 					containingObj.set_regCode(reg);
 				}
 				else {
 					temp = *objPointer;
+					temp += func->baseOffset;
 					containingObj.set_regCode(temp);
 				}
 			}
@@ -3665,14 +3669,15 @@ void SystemCall::call_64conv(asSSystemFunctionInterface* func,
 				if(cpu.isIntArg64Register(intCount+1, a+1)) {
 					Register reg = as<void*>(cpu.intArg64(intCount+1, a+1));
 					reg = as<void*>(*objPointer);
+
+					reg += func->baseOffset;
 					containingObj.set_regCode(reg);
 				}
 				else {
-					cpu.push(*objPointer);
-					if(isVirtual) {
-						temp = objPointer;
-						containingObj.set_regCode(temp);
-					}
+					temp = *objPointer;
+					temp += func->baseOffset;
+					cpu.push(temp);
+					containingObj.set_regCode(temp);
 				}
 			}
 		}
